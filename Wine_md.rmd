@@ -1,0 +1,644 @@
+---
+title: "White Wine Quality Prediction Analysis"
+author: "Pratibha Yadav"
+date: "6/30/2021"
+output: pdf_document
+---
+
+# White Wine quality Analysis by Comparing Various Supervised Machine Learning Methods
+
+# Preface
+
+I chose white wine data set for my project because i wanted to learn more about machine learning using some topic which interest me. I will be using white wine data set from UCI machine learning repository. Selection of machine learning algorithms depends on learning type. There are two types : Supervised Learning and Unsupervised Learning.This will be a supervised learning case because our output or dependent variable (quality) is given in the data set. I will compare various supervised machine learning models like Regression Trees, K nearest Neighbors, RandomForest to name a few. There are 12 attributes in the data set 11 input variables and 1 output variable, which is quality. It is an ordinal data type with values ranging from 0 to 9. i have converted it into two level ordinal data so that i can use binary classification algorithms.
+
+# Machine Learing Model Building
+
+Before I begin comparison of various machine learning algorithms I will have to curate the data. It involves data cleaning, removing redundant features, avoid multicollinearity, and data unbalance. I will also perform few statistical analysis on the data to figure out relationship between different variables.
+
+```{r, echo = FALSE}
+
+# Set number of significant digits
+options(digits = 3)
+if(!require(tidyverse)) install.packages("tidyverse", repos = "http://cran.us.r-project.org")
+if(!require(caret)) install.packages("caret", repos = "http://cran.us.r-project.org")
+if(!require(corrplot)) install.packages("corrplot", repos = "http://cran.us.r-project.org")
+if(!require(ROCR)) install.packages("ROCR", repos = "http://cran.us.r-project.org")
+
+library(ROCR)
+library(corrplot)
+library(caret)
+library(tidyverse)
+
+winequality.white <- read.csv("~/Downloads/winequality-white.csv", sep=";")
+
+Whitewine<-winequality.white
+
+View(Whitewine)
+
+str(Whitewine)
+
+head(Whitewine)
+
+```
+
+# Data Set Preparation
+
+Checking for null values
+
+```{r}
+sum(is.na(Whitewine))
+```
+
+We can see that this dataset is very clean and there are no missing values.
+  
+## Ungrouped Frequency Distribution of quality
+
+```{r}
+Whitewine%>%count(quality)
+```
+
+## Plot Frequency Distribution of quality
+
+```{r}
+Whitewine%>%ggplot(aes(quality)) +
+  geom_histogram(color="black", fill="blue", bins = 7)
+```  
+
+We can see that there are very few data in lower and higher categories.Most of data is in middle categories.
+
+## Corelation Matrix
+
+I looked at  correlation matrix of the data set, to see if any predictors are highly correlated with  another. We may have to take out these predictors in order to avoid multicollinearity, which can invalidate results. Multicollinearity does not affect Random Forest and decision tree but it does affect KNN. I could have avoided this step because multicollinearity affects regression models the most by coefficient becoming very sensitive to change in the model but I went ahead with it because I will model Logistic Regression.  
+
+```{r}
+
+c<-cor(Whitewine)
+
+corrplot(c)
+
+```
+
+We can see from the chart that _density_ and _residual sugar_ are highly correlated. _Free sulfur dioxide_ and _total sulfur dioxide_ are also correlated. I will drop residual sugar, total sulfur dioxide and density from the dataset and again calculate correlation matrix.
+
+```{r}
+wine<-Whitewine[,c(-4,-7,-8)]
+
+head(wine)
+
+c1<-cor(wine)
+
+corrplot(c1)  
+```
+
+Five number summary
+
+```{r}
+summary(wine)
+```
+
+We can see from five number summary that the data is not normal .We will have to normalize it to get a better accuracy in machine learning algorithms. Normalization is done so that values of columns with numeric data types can be changed to a common scale, without changing differences in the ranges of values.
+
+```{r}
+normalize <- function(x) {
+  return((x-min(x))/(max(x)-min(x)))}
+
+
+Whitewine <- Whitewine %>%
+  mutate_at(vars(-quality), .funs = normalize)
+  
+summary(Whitewine)
+```
+
+classify dependent variable, quality, in two levels. quality is a categorical ordinal variable with multiple levels. I changed it into binary variable to two possible outcomes. This process is called quantizing. If we construct binary variable then any computed average will also be proportion.I have also removed duplicate values from the data set. 
+
+```{r}
+wine <- Whitewine[,c(-4,-7,-8)] %>% 
+  mutate(quality = factor(case_when(
+    quality %in% c(0:5) ~ "low",
+    quality %in% c(6:9) ~ "high"),
+    levels = c("low", "high")))
+
+str(wine)
+
+
+wine <- wine[!duplicated(wine), ]
+dim(wine)
+
+```
+
+# Data Visualization
+
+```{r}
+
+table(wine$quality)
+
+wine%>%ggplot(aes(quality)) +
+  geom_bar(color = 'black', fill = "blue") +
+  # Used to show 0-10 range, even if there are no values close to 0 or 5
+  xlab('quality of White Wine') +
+  ylab('Number of White Wines')
+
+# Alcohol vs Quality
+
+BP<-boxplot(alcohol~quality,data=wine, main="Alcohol vs Quality", col=blues9,
+            xlab="quality of wine", ylab="alcohol quantity")
+```
+
+We can see that data is a bit skewed in case of low quality wine. 
+we will see effect of all attributes on quality of the wine using boxplot
+we have created another column called "quality" to reduce number of quality identifiers into 2. We will use quality[with two levels: low and high] instead of original quality to make these boxplots
+
+# Independent attributes behavior to define quality of the wine
+
+```{r}
+# Fixed Acidity
+
+ggplot(data =wine, aes(fixed.acidity)) +
+  geom_histogram(binwidth = 0.2, color = 'black', fill = 'blue') +
+  # Split data by category and display plots horizontally
+  facet_wrap(~quality)
+
+ggplot(data = wine, aes(x = quality, y = fixed.acidity, color = quality, group = quality )) +
+  geom_boxplot()
+
+
+# Volatile Acidity
+
+ggplot(data =wine, aes(volatile.acidity)) +
+  geom_histogram(binwidth = 0.2, color = 'black', fill = 'blue') +
+  # Split data by category and display plots horizontally
+  facet_wrap(~quality)
+
+ggplot(data = wine, aes(x = quality, y = volatile.acidity, color = quality, group = quality )) +
+  geom_boxplot()
+
+
+
+# Citric Acid
+
+ggplot(data=wine, aes(citric.acid)) +
+  geom_histogram(binwidth = 0.2, color = 'black', fill = 'blue') +
+  # Split data by category and display plots horizontally
+  facet_wrap(~quality)
+
+ggplot(data = wine, aes(x = quality, y = citric.acid, color = quality, group = quality)) +
+  geom_boxplot()
+
+
+
+# Chlorides
+
+ggplot(data = wine, aes(chlorides)) +
+  geom_histogram(binwidth = 0.2, color= 'black', fill= 'blue') +
+  facet_wrap(~quality)
+
+ggplot(data = wine, aes(x = quality, y = chlorides, color = quality, group = quality )) +
+  geom_boxplot()
+
+
+
+# Free_Sulfur_Dioxide
+
+ggplot(data = wine, aes(free.sulfur.dioxide)) +
+  geom_histogram(binwidth = 0.2, color= 'black', fill= 'blue') +
+  facet_wrap(~quality)
+
+ggplot(data = wine, aes(x = quality, y = free.sulfur.dioxide, color = quality, group = quality )) +
+  geom_boxplot()
+
+
+
+
+# pH
+
+ggplot(data = wine, aes(pH)) +
+  geom_histogram(binwidth = 0.2, color= 'black', fill= 'blue') +
+  facet_wrap(~quality)
+ggplot(data = wine, aes(x = quality, y = pH, color = quality, group = quality )) +
+  geom_boxplot()
+
+
+
+# sulphates
+
+ggplot(data = wine, aes(sulphates)) +
+  geom_histogram(binwidth = 0.2, color= 'black', fill= 'blue') +
+  facet_wrap(~quality)
+ggplot(data = wine, aes(x = quality, y = sulphates, color = quality, group = quality )) +
+  geom_boxplot()
+
+ 
+
+# Alcohol
+
+ggplot(data = wine, aes(alcohol)) +
+  geom_histogram(binwidth = 0.2, color= 'black', fill= 'blue') +
+  facet_wrap(~quality)
+ggplot(data = wine, aes(x = quality, y = alcohol, color = quality, group = quality )) +
+  geom_boxplot()
+
+
+```
+
+# Machine Learning Models
+
+Machine learning is part of of artificial intelligence. Data plays an important role in it because data is the result we want to predict and it is also the predictors on which our result is based upon. It is analysis of algorithms or methods, we use to train on data for which we know the result and then use these trained methods on data for which the result is unknown. As the name suggests it is a way to make computers learn and behave like a human.
+
+My project is to find which classification algorithm works best in identifying quality of the white wine when other predictors are given. I have already prepared the data but my data is unbalanced. To balance it i will use downsample function.
+
+```{r}
+wine2<-downSample(wine[,-9], wine$quality, yname = "quality")
+
+wine2%>% group_by(quality)%>%count()
+
+```
+
+# Training and Testing set
+
+We have the data ready to be divided into two parts. First will be the training set, which will be used to train the various algorithms and second will be testing set. this we will keep to test our algorithm to find out what is the efficiency of the algorithm. I have divided my data based on 80/20 principle. 80% is for training and 20 percent is for testing.
+
+```{r}
+
+set.seed(20)
+y <- wine2$quality
+test_index <- createDataPartition(y, times = 1, p = 0.2, list = FALSE)
+train_set <- wine2 %>% slice(-test_index)
+test_set <- wine2 %>% slice(test_index)
+```
+
+```{r, echo = FALSE}
+# a function that returns the accuracy of a confusion matrix
+
+method_acc <- function(conf) {
+  sum(diag(conf)) / sum(conf)
+}
+```
+
+
+# Receiver Operator Characteristic (ROC)
+
+It is a graphical plot which is used to show the predictive capability of a binary classifier.It is constructed by plotting the true positive rate (TPR) against the false positive rate (FPR). The true positive rate is the proportion of observations that were correctly predicted to be positive out of all positive observations (TP/(TP + FN)). Similarly, the false positive rate is the proportion of observations that are incorrectly predicted to be positive out of all negative observations (FP/(TN + FP)).
+
+
+# Area under the curve (AUC)
+
+AUC is area under the ROC curve. High AUC doesn't always mean that the classifier performs better than the classifier with low AUC. 
+
+
+# Algorithms
+
+## Logistic Regression
+
+It is the appropriate regression analysis when the dependent attribute is binary nature. Like all other algorithms logistic regression helps in summarizing the data and explaining the relationship between the dependent variable and independent variables.The type of question LR can answer are of dichotomous nature . the answer can be : yes/no, true/false
+
+*Binary Logistic Regression Major Assumptions
+    +The dependent attribute should be of binanry nature
+    +There should be not outliers
+    +There should be no multicollinearity amongst the predictors (statisticsolutions.com)    
+
+# Cross-Validation in Machine Learning
+
+The most important purpose of cross validation is to find out how any machine learning model will perform on an unknown data set. It evaluates model performance. 
+
+**Variations on Cross-Validation**
+
+   1.k fold cross Validation
+    The data is divided into k folds and one part acts as validation set.ER run          multiple iterations rest all k-1 parts are used as training sets.Then we             average the score. if we assign k= 5 then it is called 5-fold cross validation
+   2.Train/Test Split: in this process k is set to 2 so that the a single split is   
+    done to train and test the model.
+   3.LOOCV: As tha name suggests, this is called leave-one-out cross                      validation(LOOCV)and it is opposite of train/test split. In this case k is the       total number of observations in the data set so the test or validation set has       just one observation.It is very computationally expensive.
+   4.Stratified: The splitting of data into folds may be governed by criteria such as     ensuring that each fold has the same proportion of observations with a given         categorical value, such as the class outcome value. This is called stratified        cross-validation.
+   5.Repeated: In this CV we basically perform k-fold cross validation but it is          repeated n times and before each repetition the data is shuffled so in the end  
+     each sample is different 
+   6.Nested: As the name suggests it is cross-validation in cross validation. In this      process k-fold cross-validation is performed within each fold.This is done to        execute hyperparameter tuning during model evaluation. 
+
+```{r}
+# cross validation
+control_specs<-trainControl(method = "CV", number = 10, savePredictions = "all", classProbs = TRUE)
+
+# set random seed
+set.seed(10)
+
+# Logistic regression model
+
+glm_cv<-train(quality~ ., method = "glm", data = train_set, family = binomial, trControl= control_specs )
+
+
+glm_pred<-predict(glm_cv, newdata = test_set)
+
+# estimate variable importance
+
+imp<-varImp(glm_cv)
+imp
+plot(imp)
+
+# create confusion matrix and find accuracy
+
+glm_accu<-confusionMatrix(glm_pred, test_set$quality)$overall["Accuracy"]
+glm_accu
+
+# misclassification error
+glm_error <- 1 - glm_accu
+glm_error
+
+# Model Performance Evaluation
+
+# ROC and AUC
+
+pred<-predict(glm_cv, test_set, type = 'prob')[,1]
+
+# performance check
+
+glm_pred2 <- prediction(pred, test_set$quality)
+glm_perf <- performance(glm_pred2, measure = "tpr", x.measure = "fpr")
+plot(glm_perf)
+
+# ROC curve
+
+glm_roc <-performance(glm_pred2,"tpr","fpr")
+plot(glm_roc, colorize = T, lwd = 2)
+abline(a = 0, b = 1) 
+
+
+auc <- performance(glm_pred2, measure = "auc")
+auc_glm <- auc@y.values[[1]]
+auc_glm
+
+
+Method_Accuracy <- (tibble(method="glm",  
+                                    accuracy = glm_accu, error = glm_error, auc_value = auc_glm[[1]]))
+Method_Accuracy
+```
+
+# Decision Tree
+
+Decision tree is my next model. It is basically a flowchart of yes/no questions. The algorithm takes the data and create tree like structure at the end of which are predictions. These endpoints are called nodes. Decision tree partition the independent attributes tp predict the dependent attribute. Decsion tree is used when dependent variable is categorical. For continous variable Regression tree is used.There certain advantages of using decision tree. They are easy to interpret and visualization is also easily done. it works in the same way a normal human minds make a decision. by comparing two conditions and choosing based on answer. There are few disadvantages associated with decision tree. one of them is over training. It happens because of recursive partitioning of training data. Also. it is not very flexible and is sensitive to any change in the training data.
+
+
+
+```{r}
+set.seed(20)
+
+tree_cv <- train(quality ~ .,
+                 data = train_set,
+                 method = "rpart",
+                 tuneGrid = data.frame(cp = seq(0.0, 0.1, len = 25)))
+                 
+
+ggplot(tree_cv)
+
+plot(tree_cv$finalModel, margin = 0.1)
+text(tree_cv$finalModel, cex = 0.75)
+
+tree_pred<-predict(tree_cv, test_set)
+
+
+
+# confusion matrix
+tree_con <- table(pred = tree_pred, true = test_set$quality)
+tree_con
+
+# accuracy
+tree_accuracy<-method_acc(tree_con)
+tree_accuracy
+
+# misclassification error
+tree_error <- 1 - tree_accuracy
+tree_error
+
+# Model Performance Evaluation
+
+# ROC and AUC
+
+pred<-predict(tree_cv, test_set, type = 'prob')[,1]
+
+# performance check
+
+tree_pred = prediction(pred, test_set$quality)
+tree_perf = performance(tree_pred, "acc")
+plot(tree_perf)
+
+#ROC curve
+
+tree_roc <-performance(tree_pred,"tpr","fpr")
+plot(tree_roc, colorize = T, lwd = 2)
+abline(a = 0, b = 1) 
+
+
+
+#AUC
+
+#The AUC represents the area under the ROC curve.
+#We can evaluate the model the performance by the value of AUC. 
+#Higher than 0.5  shows a better model performance. 
+#If the curve changes to rectangle it is perfect classifier with AUC value 1.
+
+tree_auc <- performance(tree_pred, measure = "auc")
+auc_tree<-tree_auc@y.values
+auc_tree
+
+Method_Accuracy <- bind_rows(Method_Accuracy,tibble(method="rpart",  
+                                    accuracy = tree_accuracy, error = tree_error, auc_value = auc_tree[[1]]))
+Method_Accuracy
+```
+
+# K-Nearest Neighbors
+
+It is a supervised learning algorithm that can be used for classification and regression problem. It is simple and works on assumption that similar things exists in proximity. The disadvantage of kNN is that it gets very slow as the number of independent predictors increases or the volume of data increase.
+
+```{r}
+library(class)
+
+set.seed(20)
+
+grid <- data.frame(k = seq(10,30, 2))
+
+knn_cv <- train(quality ~. -quality, method = "knn", data = train_set, tuneGrid = grid)
+#plot knn_cv
+ggplot(knn_cv)
+
+knn_pred<-predict(knn_cv, test_set)
+
+#accuracy
+(knn_acc<-confusionMatrix(knn_pred, test_set$quality)$overall["Accuracy"])
+
+
+# misclassification error
+knn_err <- 1 - knn_acc
+knn_err
+
+pred<-predict(knn_cv, test_set, type = 'prob')[,1]
+
+#performance check
+
+knn_pred = prediction(pred, test_set$quality)
+knn_perf = performance(knn_pred, "acc")
+plot(knn_perf)
+
+#ROC curve
+
+knn_roc <-performance(knn_pred,"tpr","fpr")
+plot(knn_roc, colorize = T, lwd = 2)
+abline(a = 0, b = 1) 
+
+
+
+#AUC
+
+
+knn_auc <- performance(knn_pred, measure = "auc")
+auc_knn<-knn_auc@y.values
+auc_knn
+
+
+
+Method_Accuracy <- bind_rows(Method_Accuracy,tibble(method="knn",  
+                                    accuracy = knn_acc, error = knn_err, auc_value= auc_knn[[1]]))
+Method_Accuracy
+
+```
+
+# Random Forest
+
+Random Forest as the name suggests are built from decision trees but without decision tree's shortcomings. Random Forests combine the simplicity of decision tree with flexibility which leads in improvement in accuracy. To make a random forest the first step is to create a bootstrap data set.To create a bootstrapped data set that is of equal size to the original we randomly select samples from the original. We can choose same sample more than once but in doing so some part of the data set is left untouched. these are called Out-of-Bag dataset. The second step is to create decision tree using the bootstrapped data set but we will use random subset of independent variables.We will not select all the variables at one time to make a decision tree.
+We repeat this process and build different variety trees. This variety makes RF more effective than decision tree model.*Bootstrapping* the data and using the *aggregate* to make a decision is call **Bagging**
+
+```{r}
+library(randomForest)
+set.seed(20)
+
+nodesize <- seq(1, 71, 10)
+
+rf_acc <- sapply(nodesize, function(ns){
+  train(quality~ ., method = "rf", data = train_set,
+        tuneGrid = data.frame(mtry = 3),
+        nodesize = ns)$results$Accuracy
+})
+
+qplot(nodesize, rf_acc)
+
+rf_cv <- randomForest(quality ~ ., data=train_set,
+                           nodesize = nodesize[which.max(rf_acc)])
+
+# predict over test set
+
+rf_pred<-predict(rf_cv, test_set)
+
+rf_tab<-table(rf_pred, test_set$quality)
+rf_tab
+# Accuracy
+
+rf_acc<-method_acc(rf_tab)
+rf_acc
+
+# misclassification error
+
+rf_err <- 1 - rf_acc
+rf_err
+
+# ROC and AUC
+
+# Building the ROC Curve
+rf_pred <- as.data.frame(predict(rf_cv, newdata = test_set, type = "prob"))
+rf_pred <- rf_pred[,1]
+
+rf_roc_pred <- prediction(rf_pred, test_set$quality)
+rf_perf <- performance(rf_roc_pred,
+                        "tpr",
+                        "fpr")
+
+plot(rf_perf,colorize = T, lwd = 2)
+abline(a=0, b=1)
+
+# AUC
+rf_auc <- performance(rf_roc_pred, measure = "auc")
+auc_rf<-rf_auc@y.values
+auc_rf
+
+
+Method_Accuracy <- bind_rows(Method_Accuracy,tibble(method="RandomForest",
+                                                    accuracy = rf_acc, error = rf_err, auc_value= auc_rf[[1]]))  
+Method_Accuracy                                                                                      
+
+# variable importance
+
+varImpPlot(rf_cv)
+
+# Modification in Random Forest based on variable importance "varImpPlot(rf_cv)"
+# we can see from variable importance plot how important an attribute is in classification
+# alcohol, volatile.acidity and free.sulfur.dioxide are three most important attributes
+# we will consider on these three in next model (Random Forest)
+```
+
+# Random Forest with three predictors
+
+```{r}
+
+set.seed(20)
+
+rf_cv2 <- randomForest(
+  formula = quality ~ alcohol + volatile.acidity + free.sulfur.dioxide,
+  data = train_set, nodesize = nodesize[which.max(rf_acc)])
+  
+rf_pred2<-predict(rf_cv2, test_set)
+
+rf_tab2<-table(rf_pred2, test_set$quality)
+
+# Accuracy
+
+rf_acc2<-method_acc(rf_tab2)
+rf_acc2
+
+# misclassification error
+
+rf_err2 <- 1 - rf_acc2
+rf_err2
+
+# Building the ROC Curve
+rf_pred2 <- as.data.frame(predict(rf_cv2, newdata = test_set, type = "prob"))
+rf_pred2 <- rf_pred2[,1]
+
+rf_roc_pred2 <- prediction(rf_pred2, test_set$quality)
+rf_perf2 <- performance(rf_roc_pred2,
+                       measure = "tpr",
+                       x.measure = "fpr")
+
+plot(rf_perf2,colorize = T, lwd = 2)
+abline(a=0, b=1)
+
+#AUC
+rf_auc2 <- performance(rf_roc_pred, measure = "auc")
+auc_rf2<-rf_auc2@y.values
+auc_rf2
+
+
+Method_Accuracy <- bind_rows(Method_Accuracy,tibble(method="RandomForestlimited",
+                                                    accuracy = rf_acc2, error = rf_err2,auc_value= auc_rf2[[1]]))  
+
+
+```
+
+#Conclusion
+
+```{r}
+
+Method_Accuracy
+
+#accuracy and AUC for all of the models
+
+Method_Accuracy%>%ggplot(aes( auc_value,accuracy, col = method)) +
+  geom_point(size = 3) + ggtitle("AUC vs Accuracy of Methods")
+
+```
+
+From above analysis it is clear that Random Forest method performs most efficiently than any other method. It's AUC value is also high and comparative to RandomForest with limited variables but it's accuracy is the highest. Accuracy is basically percentage of correct prediction we made on our testing data set. k nearest neighbour comes close second.The major constraint i found is that accuracy is not very high for any of the above method.
+
+
+#References
+
+
+ 1.UCI Machine Learning Repository
+ 
+ 2.StatQuest
+ 
+ 3.Introduction to Data Science by Prof. Rafael A. Irizarry
